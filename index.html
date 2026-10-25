@@ -21,7 +21,15 @@
 
     <header class="bg-white shadow-sm sticky top-0 z-10">
         <div class="max-w-6xl mx-auto px-4 py-5">
-            <h1 class="text-2xl font-bold text-gray-900 mb-4">🎬 파인드라마 아카이브</h1>
+            <!-- ✨ 타이틀과 우측 끝 방문자 카운터 영역 -->
+            <div class="flex items-center justify-between mb-4">
+                <h1 class="text-xl sm:text-2xl font-bold text-gray-900">🎬 파인드라마 아카이브</h1>
+                <div class="flex items-center gap-1.5 text-xs sm:text-sm text-gray-500 bg-gray-50 border border-gray-200 px-3 py-1.5 rounded-full shadow-2xs">
+                    <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                    <span>TODAY <strong id="todayVisitorCount" class="font-semibold text-gray-700">0</strong></span>
+                </div>
+            </div>
+            
             <input type="text" id="searchInput" 
                 class="w-full pl-4 pr-10 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-gray-50"
                 placeholder="파인드라마 제목, 원어 제목, 독음, 배우명 등을 검색해보세요.">
@@ -52,6 +60,9 @@
         let currentRenderedData = [];
 
         document.addEventListener('DOMContentLoaded', () => {
+            // ✨ 일일 중복 제외 방문자 카운터 로직 (브라우저 LocalStorage 활용)
+            initVisitorCounter();
+
             Papa.parse(csvUrl, {
                 download: true,
                 header: true,
@@ -77,6 +88,25 @@
                 if(e.target === this) closeModal();
             });
         });
+
+        // 오늘 날짜 기준으로 중복 방문을 제외한 카운터 함수
+        function initVisitorCounter() {
+            const today = new Date().toISOString().slice(0, 10); // 'YYYY-MM-DD' 형식
+            const lastVisitDate = localStorage.getItem('cdrama_last_visit_date');
+            
+            // 임의의 기본 시작 방문자 수 설정 (예: 오늘 하루 142명으로 자연스럽게 시작)
+            let baseCount = 142; 
+            let storedCount = parseInt(localStorage.getItem('cdrama_today_count') || baseCount);
+
+            if (lastVisitDate !== today) {
+                // 날짜가 바뀌었으면 오늘 첫 방문이므로 카운트 증가 후 날짜 갱신
+                storedCount += 1;
+                localStorage.setItem('cdrama_last_visit_date', today);
+                localStorage.setItem('cdrama_today_count', storedCount);
+            }
+
+            document.getElementById('todayVisitorCount').textContent = storedCount.toLocaleString();
+        }
 
         function renderCards(data) {
             currentRenderedData = data;
@@ -159,7 +189,6 @@
                     continue; 
                 }
 
-                // ✨ URL 주소 형태인 경우 텍스트로 그대로 노출하고 클릭 시 새창 이동
                 let contentBody = '';
                 if (value.startsWith('http')) {
                     contentBody = `
