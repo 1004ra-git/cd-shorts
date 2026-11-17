@@ -26,7 +26,7 @@
                 <h1 class="text-xl sm:text-2xl font-bold text-gray-900">🎬 파인드라마 아카이브</h1>
                 <div class="flex items-center gap-1.5 text-xs sm:text-sm text-gray-500 bg-gray-50 border border-gray-200 px-3 py-1.5 rounded-full shadow-2xs">
                     <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                    <span>TODAY <strong id="todayVisitorCount" class="font-semibold text-gray-700">0</strong></span>
+                    <span>TODAY <strong id="todayVisitorCount" class="font-semibold text-gray-700">-</strong></span>
                 </div>
             </div>
             
@@ -48,7 +48,7 @@
             </div>
 
             <div class="flex flex-wrap items-center justify-between gap-2 mt-2.5 pt-2 border-t border-gray-100 text-xs text-gray-500">
-                <span class="text-[11px] sm:text-xs">💡 아카이브에 없는 드라마의 원제를 찾으려면?</span>
+                <span class="text-[11px] sm:text-xs">💡 배우 사진•스틸컷으로 원제를 찾으려면?</span>
                 <div class="flex items-center gap-1.5">
                     <a href="https://images.google.com/" target="_blank" rel="noopener noreferrer" 
                        class="inline-flex items-center gap-1 px-2.5 py-1 bg-gray-100 hover:bg-blue-50 hover:text-blue-600 text-gray-700 rounded-md font-medium transition">
@@ -67,7 +67,7 @@
                         <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                         <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                     </svg>
-                    <span id="ocrStatusText">이미지 색감/구도와 글자를 분석하고 있습니다⸒⸒⸒</span>
+                    <span id="ocrStatusText">이미지에서 글자를 추출하고 있습니다⸒⸒⸒ (최대 5~10초 소요)</span>
                 </div>
                 <button onclick="resetSearch()" class="text-xs font-bold text-blue-600 hover:underline shrink-0 ml-2">초기화</button>
             </div>
@@ -96,7 +96,7 @@
 
         let allData = [];
         let currentRenderedData = [];
-        let posterFeaturesCache = {}; // 포스터 시각적 특징 저장소
+        let posterFeaturesCache = {};
 
         document.addEventListener('DOMContentLoaded', () => {
             initVisitorCounter();
@@ -108,7 +108,6 @@
                     document.getElementById('loadingIndicator').style.display = 'none';
                     allData = results.data.filter(item => Object.values(item).some(val => val !== "")); 
                     renderCards(allData);
-                    // 백그라운드에서 포스터들의 시각적 특징(색감/패턴) 미리 추출
                     precomputePosterFeatures();
                 },
                 error: function(err) {
@@ -129,7 +128,6 @@
                 renderCards(filtered);
             });
 
-            // ✨ 하이브리드 이미지 검색 (시각적 색감/구도 + 텍스트 동시 분석)
             document.getElementById('imageSearchInput').addEventListener('change', async (e) => {
                 const file = e.target.files[0];
                 if (!file) return;
@@ -143,10 +141,7 @@
                 statusText.textContent = '이미지의 시각적 느낌(색감·구도)과 글자를 동시에 분석 중입니다⸒⸒⸒';
 
                 try {
-                    // 1. 업로드된 이미지의 시각적 특징(8x8 컬러 그리드) 추출
                     const uploadedFeatures = await extractVisualFeaturesFromFile(file);
-
-                    // 2. OCR로 글자도 함께 추출 (보조 정확도 향상)
                     const ocrResult = await Tesseract.recognize(file, 'kor+chi_sim');
                     const words = ocrResult.data.text
                         .replace(/[^\w\s가-힣\u4e00-\u9fa5]/g, ' ')
@@ -155,11 +150,8 @@
 
                     spinner.classList.add('hidden');
 
-                    // 3. 전체 드라마와 유사도 점수 계산
                     const scoredData = allData.map((item, idx) => {
                         let totalScore = 0;
-
-                        // (A) 글자 일치 점수 (글자가 일치하면 강력한 가산점)
                         const itemString = Object.values(item).join(' ').toLowerCase();
                         words.forEach(word => {
                             if (itemString.includes(word.toLowerCase())) {
@@ -167,7 +159,6 @@
                             }
                         });
 
-                        // (B) 시각적 느낌(색감/구도) 유사도 점수 (0 ~ 100점)
                         const posterFeat = posterFeaturesCache[idx];
                         if (uploadedFeatures && posterFeat) {
                             const visualSimilarity = compareVisualFeatures(uploadedFeatures, posterFeat);
@@ -177,7 +168,6 @@
                         return { item, score: totalScore };
                     });
 
-                    // 유사도 점수가 높은 순서대로 정렬 (상위 12개 노출)
                     scoredData.sort((a, b) => b.score - a.score);
                     const finalResults = scoredData.filter(d => d.score > 45).map(d => d.item).slice(0, 12);
 
@@ -203,23 +193,60 @@
             });
         });
 
-        // ✨ 이미지를 8x8 격자로 줄여 색상/구도 패턴(RGB 배열)을 추출하는 함수
+        // ✨ 실제 방문자 수를 외부 무료 서버(CounterAPI)에 기록하고 불러오는 함수
+        async function initVisitorCounter() {
+            const countElement = document.getElementById('todayVisitorCount');
+            
+            // 한국 시간(KST) 기준 오늘 날짜 구하기 (예: 2026-11-17)
+            const now = new Date();
+            const kstDate = new Date(now.getTime() + (9 * 60 * 60 * 1000));
+            const today = kstDate.toISOString().slice(0, 10);
+            
+            const storageKey = 'cdrama_visited_' + today;
+            const hasVisitedToday = localStorage.getItem(storageKey);
+
+            const namespace = 'cd-shorts-netlify-app';
+            const key = 'today-' + today; 
+
+            try {
+                let url = `https://api.counterapi.dev/v1/${namespace}/${key}`;
+                
+                // 오늘 처음 방문한 기기/브라우저라면 서버에 카운트 +1 요청
+                if (!hasVisitedToday) {
+                    url += '/up';
+                }
+
+                const response = await fetch(url);
+                if (response.ok) {
+                    const data = await response.json();
+                    countElement.textContent = (data.count || 0).toLocaleString();
+                    
+                    if (!hasVisitedToday) {
+                        localStorage.setItem(storageKey, 'true');
+                    }
+                } else {
+                    countElement.textContent = '1';
+                }
+            } catch (error) {
+                countElement.textContent = '1';
+            }
+        }
+
         function getCanvasFeatures(imgElement) {
             const canvas = document.createElement('canvas');
             const ctx = canvas.getContext('2d');
-            const size = 8; // 8x8 구도 분할
+            const size = 8;
             canvas.width = size;
             canvas.height = size;
             ctx.drawImage(imgElement, 0, 0, size, size);
             const data = ctx.getImageData(0, 0, size, size).data;
             const features = [];
             for (let i = 0; i < data.length; i += 4) {
-                features.push(data[i], data[i+1], data[i+2]); // R, G, B 저장
+                features.push(data[i], data[i+1], data[i+2]);
             }
             return features;
         }
 
-        // 사용자가 올린 파일에서 시각적 특징 추출
         function extractVisualFeaturesFromFile(file) {
             return new Promise((resolve) => {
                 const img = new Image();
@@ -229,7 +256,6 @@
             });
         }
 
-        // 시트에 있는 포스터들의 시각적 특징을 백그라운드에서 미리 계산 (CORS 우회 프록시 활용)
         function precomputePosterFeatures() {
             allData.forEach((item, index) => {
                 let imageUrl = '';
@@ -243,7 +269,6 @@
 
                 const img = new Image();
                 img.crossOrigin = "Anonymous";
-                // 외부 이미지 보안 차단을 우회하기 위해 무료 이미지 프록시(wsrv.nl) 경유
                 img.src = `https://wsrv.nl/?url=${encodeURIComponent(imageUrl)}&w=100&h=100&output=jpg`;
                 img.onload = () => {
                     try {
@@ -253,37 +278,19 @@
             });
         }
 
-        // 두 이미지의 시각적 느낌(색감/구도) 유사도를 0~100점으로 계산
         function compareVisualFeatures(featA, featB) {
             let diff = 0;
             for (let i = 0; i < featA.length; i++) {
                 diff += Math.abs(featA[i] - featB[i]);
             }
             const maxDiff = featA.length * 255;
-            const similarity = (1 - (diff / maxDiff)) * 100;
-            return similarity; // 100점에 가까울수록 색감과 구도가 똑같음
+            return (1 - (diff / maxDiff)) * 100;
         }
 
         function resetSearch() {
             document.getElementById('searchInput').value = '';
             document.getElementById('ocrStatus').classList.add('hidden');
             renderCards(allData);
-        }
-
-        function initVisitorCounter() {
-            const today = new Date().toISOString().slice(0, 10);
-            const lastVisitDate = localStorage.getItem('cdrama_last_visit_date');
-            
-            let baseCount = 142; 
-            let storedCount = parseInt(localStorage.getItem('cdrama_today_count') || baseCount);
-
-            if (lastVisitDate !== today) {
-                storedCount += 1;
-                localStorage.setItem('cdrama_last_visit_date', today);
-                localStorage.setItem('cdrama_today_count', storedCount);
-            }
-
-            document.getElementById('todayVisitorCount').textContent = storedCount.toLocaleString();
         }
 
         function renderCards(data) {
