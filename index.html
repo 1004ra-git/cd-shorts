@@ -9,7 +9,6 @@
     
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.2/papaparse.min.js"></script>
-    <!-- 이미지 속 텍스트(한글/한자) 인식을 위한 무료 OCR 라이브러리 -->
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 
     <style>
@@ -23,7 +22,6 @@
 
     <header class="bg-white shadow-sm sticky top-0 z-10">
         <div class="max-w-6xl mx-auto px-4 py-5">
-            <!-- 타이틀과 우측 끝 방문자 카운터 영역 -->
             <div class="flex items-center justify-between mb-4">
                 <h1 class="text-xl sm:text-2xl font-bold text-gray-900">🎬 파인드라마 아카이브</h1>
                 <div class="flex items-center gap-1.5 text-xs sm:text-sm text-gray-500 bg-gray-50 border border-gray-200 px-3 py-1.5 rounded-full shadow-2xs">
@@ -32,18 +30,15 @@
                 </div>
             </div>
             
-            <!-- 텍스트 검색창 & 이미지 OCR 검색(카메라) 버튼 영역 -->
             <div class="relative flex items-center">
                 <input type="text" id="searchInput" 
                     class="w-full pl-4 pr-12 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-gray-50 text-sm sm:text-base"
                     placeholder="파인드라마 제목, 원어 제목, 독음, 배우명, 이미지 검색 등을 활용해보세요.">
                 
-                <!-- 숨겨진 파일 업로드 인풋 -->
                 <input type="file" id="imageSearchInput" accept="image/*" class="hidden">
                 
-                <!-- 카메라 아이콘 버튼 -->
                 <button onclick="document.getElementById('imageSearchInput').click()" 
-                        title="포스터나 자막 캡처 이미지로 내 아카이브 검색"
+                        title="포스터 색감/구도 및 글자로 내 아카이브 검색"
                         class="absolute right-2.5 p-2 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-full transition">
                     <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"></path>
@@ -52,9 +47,8 @@
                 </button>
             </div>
 
-            <!-- ✨ 글자 없는 스틸컷/배우 얼굴 검색용 외부 렌즈 바로가기 바 -->
             <div class="flex flex-wrap items-center justify-between gap-2 mt-2.5 pt-2 border-t border-gray-100 text-xs text-gray-500">
-                <span class="text-[11px] sm:text-xs">💡 배우 사진•스틸컷으로 원제를 찾으려면?</span>
+                <span class="text-[11px] sm:text-xs">💡 아카이브에 없는 드라마의 원제를 찾으려면?</span>
                 <div class="flex items-center gap-1.5">
                     <a href="https://images.google.com/" target="_blank" rel="noopener noreferrer" 
                        class="inline-flex items-center gap-1 px-2.5 py-1 bg-gray-100 hover:bg-blue-50 hover:text-blue-600 text-gray-700 rounded-md font-medium transition">
@@ -67,14 +61,13 @@
                 </div>
             </div>
 
-            <!-- 이미지 분석 진행 상태 표시줄 -->
             <div id="ocrStatus" class="hidden mt-2.5 text-xs sm:text-sm text-blue-700 bg-blue-50 border border-blue-100 px-3.5 py-2 rounded-lg flex items-center justify-between">
                 <div class="flex items-center gap-2">
                     <svg class="animate-spin h-4 w-4 text-blue-600 shrink-0" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                         <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                         <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                     </svg>
-                    <span id="ocrStatusText">이미지에서 글자를 추출하고 있습니다⸒⸒⸒ (최대 5~10초 소요)</span>
+                    <span id="ocrStatusText">이미지 색감/구도와 글자를 분석하고 있습니다⸒⸒⸒</span>
                 </div>
                 <button onclick="resetSearch()" class="text-xs font-bold text-blue-600 hover:underline shrink-0 ml-2">초기화</button>
             </div>
@@ -103,6 +96,7 @@
 
         let allData = [];
         let currentRenderedData = [];
+        let posterFeaturesCache = {}; // 포스터 시각적 특징 저장소
 
         document.addEventListener('DOMContentLoaded', () => {
             initVisitorCounter();
@@ -114,13 +108,14 @@
                     document.getElementById('loadingIndicator').style.display = 'none';
                     allData = results.data.filter(item => Object.values(item).some(val => val !== "")); 
                     renderCards(allData);
+                    // 백그라운드에서 포스터들의 시각적 특징(색감/패턴) 미리 추출
+                    precomputePosterFeatures();
                 },
                 error: function(err) {
                     document.getElementById('loadingIndicator').innerHTML = '데이터를 불러오는데 실패했습니다.';
                 }
             });
 
-            // 일반 텍스트 검색 이벤트
             document.getElementById('searchInput').addEventListener('input', (e) => {
                 document.getElementById('ocrStatus').classList.add('hidden');
                 const keyword = e.target.value.toLowerCase().trim();
@@ -134,7 +129,7 @@
                 renderCards(filtered);
             });
 
-            // 이미지 업로드 검색 이벤트 (OCR 처리)
+            // ✨ 하이브리드 이미지 검색 (시각적 색감/구도 + 텍스트 동시 분석)
             document.getElementById('imageSearchInput').addEventListener('change', async (e) => {
                 const file = e.target.files[0];
                 if (!file) return;
@@ -145,46 +140,55 @@
                 
                 statusDiv.classList.remove('hidden');
                 spinner.classList.remove('hidden');
-                statusText.textContent = '이미지에서 드라마 제목/배우를 읽는 중입니다...';
+                statusText.textContent = '이미지의 시각적 느낌(색감·구도)과 글자를 동시에 분석 중입니다⸒⸒⸒';
 
                 try {
-                    const result = await Tesseract.recognize(file, 'kor+chi_sim');
-                    const rawText = result.data.text;
+                    // 1. 업로드된 이미지의 시각적 특징(8x8 컬러 그리드) 추출
+                    const uploadedFeatures = await extractVisualFeaturesFromFile(file);
 
-                    const words = rawText
+                    // 2. OCR로 글자도 함께 추출 (보조 정확도 향상)
+                    const ocrResult = await Tesseract.recognize(file, 'kor+chi_sim');
+                    const words = ocrResult.data.text
                         .replace(/[^\w\s가-힣\u4e00-\u9fa5]/g, ' ')
                         .split(/\s+/)
                         .filter(w => w.length >= 2);
 
                     spinner.classList.add('hidden');
 
-                    if (words.length === 0) {
-                        statusText.textContent = '글자를 찾지 못했습니다. 글자 없는 사진은 상단의 [구글 렌즈]나 [바이두 이미지 검색]을 이용해 보세요!';
-                        return;
-                    }
+                    // 3. 전체 드라마와 유사도 점수 계산
+                    const scoredData = allData.map((item, idx) => {
+                        let totalScore = 0;
 
-                    const matchedData = [];
-                    allData.forEach(item => {
+                        // (A) 글자 일치 점수 (글자가 일치하면 강력한 가산점)
                         const itemString = Object.values(item).join(' ').toLowerCase();
-                        let matchScore = 0;
                         words.forEach(word => {
                             if (itemString.includes(word.toLowerCase())) {
-                                matchScore += 1;
+                                totalScore += 50; 
                             }
                         });
-                        if (matchScore > 0) {
-                            matchedData.push({ item, score: matchScore });
+
+                        // (B) 시각적 느낌(색감/구도) 유사도 점수 (0 ~ 100점)
+                        const posterFeat = posterFeaturesCache[idx];
+                        if (uploadedFeatures && posterFeat) {
+                            const visualSimilarity = compareVisualFeatures(uploadedFeatures, posterFeat);
+                            totalScore += visualSimilarity;
                         }
+
+                        return { item, score: totalScore };
                     });
 
-                    matchedData.sort((a, b) => b.score - a.score);
-                    const finalResults = matchedData.map(m => m.item);
+                    // 유사도 점수가 높은 순서대로 정렬 (상위 12개 노출)
+                    scoredData.sort((a, b) => b.score - a.score);
+                    const finalResults = scoredData.filter(d => d.score > 45).map(d => d.item).slice(0, 12);
 
-                    const previewWords = words.slice(0, 4).join(', ');
-                    document.getElementById('searchInput').value = previewWords;
-                    statusText.textContent = `이미지 인식 완료! 추출된 키워드(${previewWords})로 ${finalResults.length}건의 드라마를 찾았습니다.`;
-                    
-                    renderCards(finalResults);
+                    if (words.length > 0) {
+                        const previewWords = words.slice(0, 3).join(', ');
+                        statusText.textContent = `분석 완료! 시각적 유사도 및 텍스트(${previewWords}) 기준으로 가장 비슷한 작품을 찾았습니다.`;
+                    } else {
+                        statusText.textContent = `분석 완료! 업로드하신 이미지와 색감·구도 느낌이 가장 비슷한 포스터 순으로 정렬했습니다.`;
+                    }
+
+                    renderCards(finalResults.length > 0 ? finalResults : scoredData.slice(0, 8).map(d => d.item));
 
                 } catch (err) {
                     spinner.classList.add('hidden');
@@ -198,6 +202,67 @@
                 if(e.target === this) closeModal();
             });
         });
+
+        // ✨ 이미지를 8x8 격자로 줄여 색상/구도 패턴(RGB 배열)을 추출하는 함수
+        function getCanvasFeatures(imgElement) {
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            const size = 8; // 8x8 구도 분할
+            canvas.width = size;
+            canvas.height = size;
+            ctx.drawImage(imgElement, 0, 0, size, size);
+            const data = ctx.getImageData(0, 0, size, size).data;
+            const features = [];
+            for (let i = 0; i < data.length; i += 4) {
+                features.push(data[i], data[i+1], data[i+2]); // R, G, B 저장
+            }
+            return features;
+        }
+
+        // 사용자가 올린 파일에서 시각적 특징 추출
+        function extractVisualFeaturesFromFile(file) {
+            return new Promise((resolve) => {
+                const img = new Image();
+                img.onload = () => resolve(getCanvasFeatures(img));
+                img.onerror = () => resolve(null);
+                img.src = URL.createObjectURL(file);
+            });
+        }
+
+        // 시트에 있는 포스터들의 시각적 특징을 백그라운드에서 미리 계산 (CORS 우회 프록시 활용)
+        function precomputePosterFeatures() {
+            allData.forEach((item, index) => {
+                let imageUrl = '';
+                for (const [key, value] of Object.entries(item)) {
+                    if ((key.includes('이미지') || key.includes('포스터')) && value.startsWith('http')) {
+                        imageUrl = value;
+                        break;
+                    }
+                }
+                if (!imageUrl) return;
+
+                const img = new Image();
+                img.crossOrigin = "Anonymous";
+                // 외부 이미지 보안 차단을 우회하기 위해 무료 이미지 프록시(wsrv.nl) 경유
+                img.src = `https://wsrv.nl/?url=${encodeURIComponent(imageUrl)}&w=100&h=100&output=jpg`;
+                img.onload = () => {
+                    try {
+                        posterFeaturesCache[index] = getCanvasFeatures(img);
+                    } catch (e) {}
+                };
+            });
+        }
+
+        // 두 이미지의 시각적 느낌(색감/구도) 유사도를 0~100점으로 계산
+        function compareVisualFeatures(featA, featB) {
+            let diff = 0;
+            for (let i = 0; i < featA.length; i++) {
+                diff += Math.abs(featA[i] - featB[i]);
+            }
+            const maxDiff = featA.length * 255;
+            const similarity = (1 - (diff / maxDiff)) * 100;
+            return similarity; // 100점에 가까울수록 색감과 구도가 똑같음
+        }
 
         function resetSearch() {
             document.getElementById('searchInput').value = '';
@@ -233,7 +298,6 @@
 
             data.forEach((item, index) => {
                 const keys = Object.keys(item);
-                
                 const titleKey = keys.find(k => k.includes('작품명') || k.includes('제목') || k.includes('드라마')) || keys[0];
                 const title = item[titleKey] || '제목 없음';
                 
@@ -302,17 +366,33 @@
                     continue; 
                 }
 
+                let contentBody = '';
+                if (value.startsWith('http')) {
+                    contentBody = `
+                        <a href="${value}" target="_blank" rel="noopener noreferrer" 
+                           class="text-blue-600 hover:text-blue-800 underline break-all text-sm md:text-base font-medium">
+                            ${value}
+                        </a>
+                    `;
+                } else {
+                    contentBody = `<p class="text-gray-700 text-sm md:text-base leading-relaxed whitespace-pre-wrap">${value}</p>`;
+                }
+
                 detailsHtml += `
-                    <div class="mb-3 sm:mb-4 bg-gray-50 p-2 sm:p-3 rounded-lg border border-gray-100">
+                    <div class="mb-3 sm:mb-4 bg-gray-50 p-3 rounded-lg border border-gray-100">
                         <span class="inline-block px-2 py-1 bg-blue-100 text-blue-800 text-[10px] sm:text-xs font-bold rounded mb-1.5 sm:mb-2">${key}</span>
-                        <p class="text-gray-700 text-sm md:text-base leading-relaxed whitespace-pre-wrap">${value}</p>
+                        <div>${contentBody}</div>
                     </div>
                 `;
             }
 
             const finalImage = imageUrl ? `
-                <div class="w-full bg-black/5 flex justify-center items-center py-4">
+                <div class="relative w-full bg-black/5 flex justify-center items-center py-4">
                     <img src="${imageUrl}" alt="포스터" class="max-w-full h-auto max-h-[50vh] sm:max-h-[60vh] object-contain shadow-sm">
+                    <a href="https://lens.google.com/uploadbyurl?url=${encodeURIComponent(imageUrl)}" target="_blank" rel="noopener noreferrer"
+                       class="absolute bottom-3 right-3 bg-black/70 hover:bg-black text-white text-xs px-3 py-1.5 rounded-full backdrop-blur-xs transition flex items-center gap-1 shadow-md">
+                        <span>🔍 이 포스터로 구글 렌즈 검색</span>
+                    </a>
                 </div>
             ` : '';
 
